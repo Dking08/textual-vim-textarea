@@ -20,8 +20,9 @@ Covered (the ~90% of everyday vim usage that's worth it in a TUI app):
     Visual:     v (charwise), V (linewise), then d/x/c/y act on selection
     Counts:     numeric prefixes, e.g. 3j, 5dd, 2dw
     Command:    ':' opens a minimal command line; 'w' / 'q' / 'wq' post
-                messages the host app can handle, anything else is posted
-                as a generic CommandEntered message.
+                messages the host app can handle, ':n' jumps to line n
+                (1-indexed, like vim), anything else is posted as a
+                generic CommandEntered message.
 
 Deliberately skipped (diminishing returns for an in-app editor, not a
 full text editor replacement): registers beyond the unnamed one, macros,
@@ -218,6 +219,10 @@ class VimTextArea(TextArea):
         elif stripped in ("wq", "x"):
             self.post_message(self.SaveRequested())
             self.post_message(self.QuitRequested())
+        elif stripped.isdigit():
+            # ":n" -- jump to line n (1-indexed, like vim)
+            target_row = max(0, min(int(stripped) - 1, self.document.line_count - 1))
+            self.move_cursor((target_row, 0))
         elif stripped:
             self.post_message(self.CommandEntered(stripped))
 

@@ -335,6 +335,24 @@ async def test_status_changed_message_fires_while_typing_a_command():
 
 
 @pytest.mark.asyncio
+async def test_colon_n_navigates_to_line():
+    app = HarnessApp("one\ntwo\nthree\nfour\nfive")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await pilot.press(":")
+        await press_all(pilot, list("3"))
+        await pilot.press("enter")
+        assert editor.cursor_location == (2, 0)  # line 3, 0-indexed row 2
+        assert editor.mode is Mode.NORMAL
+
+        # out-of-range clamps to the last line rather than erroring
+        await pilot.press(":")
+        await press_all(pilot, list("999"))
+        await pilot.press("enter")
+        assert editor.cursor_location == (4, 0)
+
+
+@pytest.mark.asyncio
 async def test_line_numbers_can_be_enabled():
     app = HarnessApp("one\ntwo\nthree")
     async with app.run_test() as pilot:
