@@ -1,3 +1,6 @@
-from .vim_textarea import VimTextArea
+from .vim_textarea import VimTextArea, Mode
 
-__all__ = ["VimTextArea"]
+__all__ = [
+    "VimTextArea",
+    "Mode",
+]
