@@ -304,3 +304,41 @@ async def test_arrow_keys_work_as_motion_aliases():
         assert editor.cursor_location == (0, 2)
         await pilot.press("down")
         assert editor.cursor_location == (1, 2)
+
+
+class StatusCapturingApp(HarnessApp):
+    def __init__(self, text: str = ""):
+        super().__init__(text)
+        self.seen_statuses: list[str] = []
+
+    def on_vim_text_area_status_changed(self, message: VimTextArea.StatusChanged) -> None:
+        self.seen_statuses.append(message.status)
+
+
+@pytest.mark.asyncio
+async def test_status_changed_message_fires_while_typing_a_command():
+    app = StatusCapturingApp("hello")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+
+        await pilot.press(":")
+        await pilot.press("q")
+        await pilot.pause()
+
+        # both the ':' keystroke and the 'q' keystroke must each have
+        # produced a StatusChanged with the buffer as it stood at that time
+        # (this is the bug that was reported: typing after ':' silently
+        # updated the internal buffer but never told the host app)
+        assert ":" in app.seen_statuses
+        assert ":q" in app.seen_statuses
+        assert editor.status_text == ":q"
+
+
+@pytest.mark.asyncio
+async def test_line_numbers_can_be_enabled():
+    app = HarnessApp("one\ntwo\nthree")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        assert editor.show_line_numbers is False  # off by default, like TextArea
+        editor.show_line_numbers = True
+        assert editor.show_line_numbers is True

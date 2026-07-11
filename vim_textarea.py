@@ -79,6 +79,17 @@ class VimTextArea(TextArea):
             self.mode = mode
             super().__init__()
 
+    class StatusChanged(Message):
+        """Posted after every NORMAL/VISUAL/COMMAND keystroke this widget
+        handles -- covers pending counts, pending operators, and the
+        command-line buffer changing, none of which necessarily change
+        `mode` itself. A host app's status bar should listen for this
+        (in addition to, or instead of, ModeChanged) to stay accurate."""
+
+        def __init__(self, status: str) -> None:
+            self.status = status
+            super().__init__()
+
     class SaveRequested(Message):
         """Posted on ':w' or ':wq'."""
 
@@ -140,12 +151,14 @@ class VimTextArea(TextArea):
             event.stop()
             event.prevent_default()
             self._handle_command_key(event)
+            self.post_message(self.StatusChanged(self.status_text))
             return
 
         # NORMAL / VISUAL / VISUAL_LINE: we own every key.
         event.stop()
         event.prevent_default()
         self._handle_normal_key(event)
+        self.post_message(self.StatusChanged(self.status_text))
 
     # ------------------------------------------------------------------
     # mode transitions

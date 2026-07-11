@@ -63,7 +63,12 @@ class DummyVimApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical():
-            yield VimTextArea(SAMPLE_TEXT, language="python", id="editor")
+            yield VimTextArea(
+                SAMPLE_TEXT,
+                language="python",
+                id="editor",
+                show_line_numbers=True,
+            )
             yield StatusBar("NORMAL", id="status")
         yield Footer()
 
@@ -78,10 +83,8 @@ class DummyVimApp(App):
     def on_vim_text_area_mode_changed(self, message: VimTextArea.ModeChanged) -> None:
         self._refresh_status()
 
-    def on_key(self, event) -> None:
-        # cheap way to keep the status bar live while counts/operators
-        # accumulate within NORMAL mode (mode itself doesn't change)
-        self.call_after_refresh(self._refresh_status)
+    def on_vim_text_area_status_changed(self, message: VimTextArea.StatusChanged) -> None:
+        self.query_one("#status", StatusBar).update(message.status)
 
     def on_vim_text_area_save_requested(self, message: VimTextArea.SaveRequested) -> None:
         self.notify("Saved (dummy -- no real file I/O here)")
