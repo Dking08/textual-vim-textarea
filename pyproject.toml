@@ -9,5 +9,7 @@ authors = [
     { name = "Dking08" }
 ]
 dependencies = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "textual>=8.2.8",
 ]
