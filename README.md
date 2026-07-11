@@ -22,17 +22,17 @@ Deliberately **not** implemented: registers beyond the default one, macros, mark
 
 > If you want to more vim features, you can contribute!
 
-## Files
+## Project layout
 
-- `vim_textarea.py` - the whole widget itself
-- `dummy_app.py` - standalone playground app, run it and mess around
-- `test_vim_textarea.py` - 25 headless tests using Textual's own `Pilot`
+- `src/textual_vim_textarea/` - the library package
+- `examples/dummy_app.py` - standalone playground app
+- `tests/test_vim_textarea.py` - headless tests using Textual's `Pilot`
 
 ## Try it
 
 ```bash
-pip install textual
-python3 dummy_app.py
+uv sync
+python examples/dummy_app.py
 ```
 
 > Bottom bar shows the mode/pending-command line, same idea as vim's own.
@@ -44,7 +44,7 @@ python3 dummy_app.py
 It's a drop-in replacement for `TextArea`. Use it exactly like you'd use `TextArea`, and listen for a couple of extra messages to keep a status bar in sync and to hook up `:w` / `:q`:
 
 ```python
-from vim_textarea import VimTextArea
+from textual_vim_textarea import VimTextArea
 
 class MyApp(App):
     def compose(self):
@@ -87,8 +87,7 @@ class MyApp(App):
 ## Running the tests
 
 ```bash
-pip install textual pytest pytest-asyncio
-python3 -m pytest test_vim_textarea.py -v --asyncio-mode=auto
+uv run pytest tests -v
 ```
 
 25 tests, all green as of this writing. 
