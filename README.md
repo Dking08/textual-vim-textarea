@@ -1,4 +1,4 @@
-# vim-textarea
+# textual-vim-textarea
 
 vim-style editing built on top of Textual's built-in `TextArea`. This is just a subclass that intercepts keys before they hit the default "every keypress inserts a character" behavior.
 

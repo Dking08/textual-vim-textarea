@@ -19,7 +19,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Footer, Header, Static
 
-from vim_textarea import VimTextArea
+from textual_vim_textarea import VimTextArea
 
 SAMPLE_TEXT = """\
 def greet(name):

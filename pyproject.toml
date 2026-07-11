@@ -1,0 +1,13 @@
+[project]
+name = "textual-vim-textarea"
+version = "1.0.0"
+description = "A Vim-style textarea widget for Textual"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Dking08" }
+]
+dependencies = [
+    "textual>=8.2.8",
+]

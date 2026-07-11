@@ -11,8 +11,7 @@ rolled mock). Run with:
 import pytest
 from textual.app import App, ComposeResult
 
-from vim_textarea import Mode, VimTextArea
-
+from textual_vim_textarea import VimTextArea
 
 class HarnessApp(App):
     def __init__(self, text: str = "", language: str | None = None):
