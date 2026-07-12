@@ -10,7 +10,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
-    { name = "Dking08", email = "dastageer_foss@yahoo.com" ]
+    { name = "Dking08", email = "dastageer_foss@yahoo.com" }
+]
 keywords = ["textual", "vim", "tui", "textarea", "editor"]
 classifiers = [
     "Development Status :: 4 - Beta",
