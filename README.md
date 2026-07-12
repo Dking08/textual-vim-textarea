@@ -4,6 +4,13 @@ vim-style editing built on top of Textual's built-in `TextArea`. This is just a 
 
 Built this to eventually wire vim keybindings into a TUI app, but split it out as its own module first so it could be tested properly on its own before touching real app code.
 
+## Two flavors
+
+- **`VimTextArea`** - for plain Textual `TextArea`. Zero extra dependencies beyond `textual` itself.
+- **`VimTextAreaPlus`** - for apps built on [`textual-textarea`](https://github.com/tconbeer/textual-textarea)'s `TextEditor`/`TextAreaPlus` instead of plain `TextArea`. 
+
+Both share the same underlying vim logic (`_modal.VimModalMixin`) - same motions, operators, counts, everything. They only differ in how they hook into their respective base widget's key handling, because the two bases genuinely work differently under the hood (see `textarea_plus.py`'s module docstring if you're curious exactly why).
+
 ## What you get
 
 - Modes: `NORMAL`, `INSERT`, `VISUAL`, `VISUAL LINE`, `COMMAND`
@@ -18,15 +25,20 @@ Built this to eventually wire vim keybindings into a TUI app, but split it out a
 - Line numbers - this one's actually just `TextArea`'s built-in
   `show_line_numbers=True`, not something this module adds
 
-Deliberately **not** implemented: registers beyond the default one, macros, marks, `:s///` regex substitution, folds, splits.
+**Not** currently implemented: registers beyond the default one, macros, marks, `:s///` regex substitution, folds, splits.
 
 > If you want to more vim features, you can contribute!
 
 ## Project layout
 
-- `src/textual_vim_textarea/` - the library package
-- `examples/dummy_app.py` - standalone playground app
-- `tests/test_vim_textarea.py` - headless tests using Textual's `Pilot`
+- `src/textual_vim_textarea/_modal.py` - shared vim logic, not meant to be used directly
+- `src/textual_vim_textarea/vim_textarea.py` - `VimTextArea`, built on plain `TextArea`. Primary file.
+- `src/textual_vim_textarea/textarea_plus.py` - `VimTextAreaPlus`, built on `textual-textarea`'s `TextAreaPlus`.
+
+- `examples/dummy_app.py` - standalone playground for `VimTextArea`
+- `examples/dummy_app_plus.py` + `examples/vim_text_editor.py` - standalone playground for `VimTextAreaPlus`, and the `TextEditor` subclass pattern to copy into a real app
+
+- `tests/test_vim_textarea.py`, `tests/test_textarea_plus.py` - headless tests using Textual's `Pilot`
 
 ## Try it
 
@@ -38,6 +50,13 @@ python examples/dummy_app.py
 > Bottom bar shows the mode/pending-command line, same idea as vim's own.
 > `:q` quits, `:w` just fires a notification since there's no real file
 > backing the dummy app.
+
+For the `TextAreaPlus` flavor (needs the extra) - OPTIONAL:
+
+```bash
+uv sync --extra textarea-plus
+python examples/dummy_app_plus.py
+```
 
 ## Using it in your own TUI
 
@@ -76,18 +95,40 @@ class MyApp(App):
 
 ### One gotcha if you're subclassing further
 
-`_on_key` is the extension point. If you need to add your own key handling on top, don't fight the binding system - override `_on_key`, check mode, and either fall through to `super()._on_key(event)` or handle it yourself and call `event.stop()` + `event.prevent_default()`. Same pattern this module already uses internally.
+`VimTextArea` uses `_on_key` as its extension point. If you need to add your own key handling on top, don't fight the binding system - override `_on_key`, check mode, and either fall through to `super()._on_key(event)` or handle it yourself and call `event.stop()` + `event.prevent_default()`. Same pattern this module already uses internally.
+
+`VimTextAreaPlus` is different on purpose - it hooks `on_key`, not `_on_key`, and in INSERT mode does **nothing at all** (not even calling `super()`) so the event cascades naturally through `TextAreaPlus`'s own `on_key` and then base `TextArea`'s `_on_key`. If you're subclassing `VimTextAreaPlus` further, match that: don't call `super().on_key()` manually, just decide whether to `prevent_default()`+`stop()` or leave the event alone entirely. See `textarea_plus.py`'s module docstring for the actual Textual dispatch mechanics this depends on - it's worth reading before you touch it, the ordering isn't obvious from the outside.
+
+### Using VimTextAreaPlus
+
+Same idea, but you also get to decide what `:w`/`:q` actually do, since `TextAreaPlus`'s real save flow lives on an ancestor `TextEditor` widget, not on the text area itself:
+
+```python
+from textual_vim_textarea.textarea_plus import VimTextAreaPlus
+
+class MyCodeEditor(TextEditor):  # from textual_textarea
+    def compose(self):
+        self.text_input = VimTextAreaPlus(language="sql", text=self._initial_text)
+        ...  # rest of TextEditor's own compose() body, unchanged
+
+    def on_vim_text_area_plus_quit_requested(self, message):
+        # ':q' - deliberately just a message. Closing a buffer/tab vs.
+        # quitting the whole app is your call, not this widget's.
+        ...
+```
+
+`:w` already works out of the box - it walks up to whatever ancestor has `action_save` (the real `TextEditor` action ctrl+s also triggers) and calls it directly, since Textual's own `run_action()` won't resolve an un-prefixed action name against an ancestor by default (verified this the hard way, see the integration guide).
 
 ## Known rough edges
 
 - Word motions (`w b e`) use a simplified vim "word" definition (keyword run vs punctuation run vs whitespace). Covers the common case, isn't byte-for-byte identical to vim in every corner case.
-- `cw` intentionally behaves like `ce` (doesn't eat trailing whitespace) - that's not a bug, it's a genuine vim quirk, kept on purpose.
+- `cw` intentionally behaves like `ce` (doesn't eat trailing whitespace).
 - Only one register (the unnamed one). `dd` then `yy` then `p` pastes whatever you yanked/deleted most recently, same register for everything.
 
 ## Running the tests
 
 ```bash
-uv run pytest tests -v
+uv run pytest tests -v --asyncio-mode=auto
 ```
 
-25 tests, all green as of this writing. 
+39 tests, all green as of this writing - 25 for `VimTextArea`, 14 for `VimTextAreaPlus`
