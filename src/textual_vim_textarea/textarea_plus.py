@@ -2,7 +2,7 @@
 textarea_plus.py
 
 Vim-modal editing for apps built on `textual-textarea`'s `TextEditor` /
-`TextAreaPlus` (e.g. Harlequin's own SQL editor) rather than plain
+`TextAreaPlus` rather than plain
 Textual `TextArea`. Requires the `textarea-plus` extra:
 
     pip install textual-vim-textarea[textarea-plus]
@@ -36,7 +36,7 @@ I verified Textual's actual dispatch order by reading
     (more-base) class's handler from running at all.
   - `event.stop()` is a separate mechanism -- it only stops the event
     from *bubbling to the parent widget* afterwards (which is how
-    Harlequin's ctrl+s / ctrl+f / ctrl+g bindings on the outer
+    some TUI's ctrl+s / ctrl+f / ctrl+g bindings on the outer
     TextEditor container end up firing even though the inner
     TextAreaPlus has actual focus).
 
@@ -144,7 +144,7 @@ class VimTextAreaPlus(VimModalMixin, TextAreaPlus):
         self.post_message(self.StatusChanged(self.status_text))
 
     # ------------------------------------------------------------------
-    # ':w' triggers Harlequin/TextEditor's real save flow (the same
+    # ':w' triggers TextEditor's real save flow (the same
     # footer path-input ctrl+s opens) by walking up to the TextEditor
     # ancestor and calling its action_save directly -- see
     # VimModalMixin._trigger_ancestor_action's docstring for why plain

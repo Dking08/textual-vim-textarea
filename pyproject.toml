@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "textual-vim-textarea"
-version = "1.0.0"
+version = "1.1.0"
 description = "A Vim-style textarea widget for Textual"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,7 +21,15 @@ classifiers = [
     "Topic :: Terminals",
 ]
 dependencies = [
-    "textual>=8.2.8",
+    "textual>=6.4.0",
+]
+
+[project.optional-dependencies]
+# Only needed for textual_vim_textarea.textarea_plus.VimTextAreaPlus --
+# vim mode for apps built on textual-textarea's TextEditor/TextAreaPlus
+# plain Textual TextArea.
+textarea-plus = [
+    "textual-textarea>=0.17,<0.18",
 ]
 
 [project.urls]
@@ -33,6 +41,7 @@ Issues = "https://github.com/Dking08/textual-vim-textarea/issues"
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "textual-textarea>=0.17,<0.18",
 ]
 
 [tool.hatch.build.targets.wheel]

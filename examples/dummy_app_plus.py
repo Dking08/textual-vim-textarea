@@ -2,7 +2,7 @@
 dummy_app_plus.py
 
 Standalone playground for VimTextAreaPlus -- the variant for apps built
-on textual-textarea's TextEditor/TextAreaPlus (like Harlequin) rather
+on textual-textarea's TextEditor/TextAreaPlus rather
 than plain Textual TextArea. Requires the 'textarea-plus' extra:
 
     pip install textual-vim-textarea[textarea-plus]
@@ -10,9 +10,7 @@ than plain Textual TextArea. Requires the 'textarea-plus' extra:
 
 Uses vim_text_editor.VimTextEditor (in this same examples/ folder) --
 a TextEditor subclass that swaps in VimTextAreaPlus. That's the exact
-pattern to copy into a real app's own CodeEditor-equivalent class; see
-harlequin_integration_guide.md for the full writeup and the specific
-diff against Harlequin's own code_editor.py.
+pattern to copy into a real app's own CodeEditor-equivalent class;
 """
 
 from textual.app import App, ComposeResult
