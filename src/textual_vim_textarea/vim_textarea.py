@@ -18,8 +18,7 @@ and in NORMAL / VISUAL / COMMAND modes we swallow the event
 shared dispatcher instead.
 
 (If you're using `textual-textarea`'s `TextEditor`/`TextAreaPlus` instead
-of plain `TextArea` -- e.g. this is the base Harlequin's own editor
-widget builds on -- use `textarea_plus.VimTextAreaPlus` instead. Its key
+of plain `TextArea` -- use `textarea_plus.VimTextAreaPlus` instead. Its key
 routing is different on purpose; see that module's docstring for why
 this file's `super()._on_key()` approach would silently break
 TextAreaPlus's own features.)

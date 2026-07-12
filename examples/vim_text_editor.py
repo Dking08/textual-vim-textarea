@@ -2,12 +2,8 @@
 vim_text_editor.py
 
 A drop-in TextEditor subclass that substitutes VimTextAreaPlus for
-TextAreaPlus. This is the actual pattern harlequin.components.code_editor's
-CodeEditor should use -- see integration_guide.md for the real diff
-against Harlequin's own CodeEditor(TextEditor) class.
-
-Kept as its own small file/class (rather than folding straight into
-CodeEditor) so it can be tested against a *real* TextEditor container in
+TextAreaPlus. 
+Kept as its own small file/class so it can be tested against a *real* TextEditor container in
 isolation first, the same "build it standalone, test it, then integrate"
 approach used for the original vim_textarea.py.
 """
