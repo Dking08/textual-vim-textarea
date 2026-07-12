@@ -192,18 +192,24 @@ wheels = [
 [[package]]
 name = "textual-vim-textarea"
 version = "1.0.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
     { name = "textual" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
 [package.metadata]
-requires-dist = [
+requires-dist = [{ name = "textual", specifier = ">=8.2.8" }]
+
+[package.metadata.requires-dev]
+dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
-    { name = "textual", specifier = ">=8.2.8" },
 ]
 
 [[package]]
