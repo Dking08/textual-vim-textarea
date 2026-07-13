@@ -29,6 +29,12 @@ Both share the same underlying vim logic (`_modal.VimModalMixin`) - same motions
 
 > If you want to more vim features, you can contribute!
 
+## Installation
+
+```bash
+pip install textual-vim-textarea
+```
+
 ## Project layout
 
 - `src/textual_vim_textarea/_modal.py` - shared vim logic, not meant to be used directly
