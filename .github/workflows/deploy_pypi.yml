@@ -1,0 +1,35 @@
+name: Deploy Package to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: PYPI_TOKEN
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+
+      - name: Install Dependencies
+        run: uv sync --frozen
+        run: uv pip install twine
+
+      - name: Run Pytest
+        run: uv run pytest tests -v --asyncio-mode=auto
+
+      - name: Build Package
+        run: uv build
+
+      - name: Publish on PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: uv run python -m twine upload dist/*
+
+      - run: echo "This job's status is ${{ job.status }}."
