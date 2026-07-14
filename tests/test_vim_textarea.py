@@ -359,3 +359,48 @@ async def test_line_numbers_can_be_enabled():
         assert editor.show_line_numbers is False  # off by default, like TextArea
         editor.show_line_numbers = True
         assert editor.show_line_numbers is True
+
+
+@pytest.mark.asyncio
+async def test_unmapped_non_printable_key_falls_through_to_host_bindings():
+    """Same fix as VimTextAreaPlus: any host app that binds its own
+    shortcuts (F2, ctrl+b, etc.) directly onto this widget must still
+    have them fire while in NORMAL mode. Only keys _handle_normal_key
+    actually recognizes as vim commands should be swallowed."""
+
+    class EditorWithBinding(VimTextArea):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.f2_fired = False
+
+        def action_test_f2(self) -> None:
+            self.f2_fired = True
+
+    class App2(App):
+        def compose(self) -> ComposeResult:
+            yield EditorWithBinding("hello", id="editor")
+
+        def on_mount(self) -> None:
+            editor = self.query_one("#editor", EditorWithBinding)
+            editor.focus()
+            editor._bindings.bind(keys="f2", action="test_f2")
+
+    app = App2()
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", EditorWithBinding)
+        assert editor.mode is Mode.NORMAL
+        await pilot.press("f2")
+        assert editor.f2_fired is True
+        await pilot.press("x")
+        assert editor.text == "ello"
+        assert editor.mode is Mode.NORMAL
+
+
+@pytest.mark.asyncio
+async def test_unmapped_printable_letter_is_still_swallowed_not_inserted():
+    app = HarnessApp("hello")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await pilot.press("z")
+        assert editor.text == "hello"
+        assert editor.mode is Mode.NORMAL

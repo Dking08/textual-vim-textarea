@@ -137,4 +137,4 @@ class MyCodeEditor(TextEditor):  # from textual_textarea
 uv run pytest tests -v --asyncio-mode=auto
 ```
 
-39 tests, all green as of this writing - 25 for `VimTextArea`, 14 for `VimTextAreaPlus`
+44 tests, all green as of this writing - 27 for `VimTextArea`, 17 for `VimTextAreaPlus`

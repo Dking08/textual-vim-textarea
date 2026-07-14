@@ -244,3 +244,90 @@ async def test_undo_redo_across_a_vim_edit():
         assert editor.text == "hello"
         await pilot.press("ctrl+r")
         assert editor.text == "ello"
+
+
+@pytest.mark.asyncio
+async def test_unmapped_non_printable_key_falls_through_to_host_bindings():
+    """ bind real actions -- F2, ctrl+b, etc. -- directly onto the
+    editor widget itself via Textual's own binding system, separate from
+    on_key. Swallowing every key unconditionally in NORMAL mode silently
+    broke all of those. An unrecognized non-printable key must NOT be
+    prevent_default()'d/stop()'d, so the binding can still fire."""
+
+    class EditorWithBinding(VimTextAreaPlus):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.f2_fired = False
+
+        def action_test_f2(self) -> None:
+            self.f2_fired = True
+
+    class App2(App):
+        def compose(self) -> ComposeResult:
+            yield EditorWithBinding(text="hello", id="editor")
+
+        def on_mount(self) -> None:
+            editor = self.query_one("#editor", EditorWithBinding)
+            editor.focus()
+            # binding actions directly onto the mounted widget instance
+            editor._bindings.bind(keys="f2", action="test_f2")
+
+    app = App2()
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", EditorWithBinding)
+        assert editor.mode is Mode.NORMAL
+        await pilot.press("f2")
+        assert editor.f2_fired is True
+        # vim commands must keep working normally right alongside this
+        await pilot.press("x")
+        assert editor.text == "ello"
+        assert editor.mode is Mode.NORMAL
+
+
+@pytest.mark.asyncio
+async def test_unmapped_printable_letter_is_still_swallowed_not_inserted():
+    """The flip side of the fix above: a stray printable character that
+    isn't a vim command (e.g. 'z', which this vim subset doesn't
+    implement) must still be a no-op, not fall through and get inserted
+    as text -- real vim's NORMAL mode never types into the buffer."""
+    app = HarnessApp("hello")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextAreaPlus)
+        await pilot.press("z")
+        assert editor.text == "hello"
+        assert editor.mode is Mode.NORMAL
+
+
+@pytest.mark.asyncio
+async def test_colon_q_closes_buffer_via_ancestor_action_when_present():
+    """':q' should prefer calling a real 'close_buffer' action found on
+    an ancestor over just posting the generic message."""
+    from textual.containers import Vertical
+
+    class FakeEditorCollection(Vertical):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.close_buffer_called = False
+
+        def compose(self) -> ComposeResult:
+            yield VimTextAreaPlus(text="hello", id="editor")
+
+        def action_close_buffer(self) -> None:
+            self.close_buffer_called = True
+
+    class App3(App):
+        def compose(self) -> ComposeResult:
+            yield FakeEditorCollection(id="collection")
+
+        def on_mount(self) -> None:
+            self.query_one("#editor", VimTextAreaPlus).focus()
+
+    app = App3()
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextAreaPlus)
+        collection = app.query_one("#collection", FakeEditorCollection)
+        await pilot.press(":")
+        await press_all(pilot, list("q"))
+        await pilot.press("enter")
+        await pilot.pause()
+        assert collection.close_buffer_called is True
