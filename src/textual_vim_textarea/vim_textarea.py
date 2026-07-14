@@ -96,8 +96,13 @@ class VimTextArea(VimModalMixin, TextArea):
             self.post_message(self.StatusChanged(self.status_text))
             return
 
-        # NORMAL / VISUAL / VISUAL_LINE: we own every key.
-        event.stop()
-        event.prevent_default()
-        self._handle_normal_key(event)
+        # NORMAL / VISUAL / VISUAL_LINE: only swallow the key if it was
+        # actually a vim command. An unrecognized non-printable key
+        # (e.g. an app-level shortcut like F2 or ctrl+b) is left alone
+        # so it can still reach the host app's own bindings -- see
+        # VimModalMixin._handle_normal_key's docstring for why this
+        # matters.
+        if self._handle_normal_key(event):
+            event.stop()
+            event.prevent_default()
         self.post_message(self.StatusChanged(self.status_text))

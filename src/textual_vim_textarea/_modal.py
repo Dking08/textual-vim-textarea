@@ -164,10 +164,10 @@ class VimModalMixin:
         if stripped in ("w", "write"):
             await self._do_save()
         elif stripped in ("q", "q!", "quit"):
-            self._do_quit()
+            await self._do_quit()
         elif stripped in ("wq", "x"):
             await self._do_save()
-            self._do_quit()
+            await self._do_quit()
         elif stripped.isdigit():
             # ":n" -- jump to line n (1-indexed, like vim)
             target_row = max(0, min(int(stripped) - 1, self.document.line_count - 1))
@@ -181,10 +181,13 @@ class VimModalMixin:
         callable save action to trigger instead (see VimTextAreaPlus)."""
         self.post_message(self.SaveRequested())
 
-    def _do_quit(self) -> None:
+    async def _do_quit(self) -> None:
         """Default ':q' behavior: post QuitRequested. Deliberately just a
         message, not a direct app.exit() call -- what ':q' should mean
-        (close a buffer? close the whole app?) is a host-app decision."""
+        (close a buffer? close the whole app?) is a host-app decision.
+        Override this if your base class has a real, directly callable
+        action to trigger instead (see VimTextAreaPlus, which tries
+        "close_buffer" on an ancestor first)."""
         self.post_message(self.QuitRequested())
 
     async def _trigger_ancestor_action(self, action_name: str) -> bool:
@@ -212,14 +215,24 @@ class VimModalMixin:
     # ------------------------------------------------------------------
     # NORMAL / VISUAL dispatch
     # ------------------------------------------------------------------
-    def _handle_normal_key(self, event: events.Key) -> None:
+    def _handle_normal_key(self, event: events.Key) -> bool:
+        """Try to handle `event` as a vim NORMAL/VISUAL-mode command.
+
+        Returns True if this was consumed as a vim action (including a
+        deliberate no-op, like an unmapped printable letter -- that must
+        still be swallowed, or it would fall through and get inserted as
+        text). Returns False if this key means nothing to vim at all --
+        the caller should NOT prevent_default()/stop() it in that case,
+        so it can still reach whatever bindings the host app has
+        configured.
+        """
         key = event.key
         char = event.character
 
         # -- numeric count prefix (leading 0 is a motion, not a count) --
         if char is not None and char.isdigit() and (char != "0" or self._count):
             self._count += char
-            return
+            return True
 
         count = int(self._count) if self._count else 1
         had_count = bool(self._count)
@@ -231,13 +244,13 @@ class VimModalMixin:
             else:
                 self._pending_op = None
                 self._pending_g = False
-            return
+            return True
 
         if char == ":":
             self.mode = Mode.COMMAND
             self._command_buffer = ""
             self._pending_op = None
-            return
+            return True
 
         # -- "gg" two-key sequence (also combines with a pending
         #    operator, e.g. "dgg") --
@@ -257,10 +270,10 @@ class VimModalMixin:
                     self.move_cursor((target_row, 0), select=select)
                     if self.mode is Mode.VISUAL_LINE:
                         self._sync_visual_line_selection()
-            return
+            return True
         if char == "g":
             self._pending_g = True
-            return
+            return True
 
         # -- resolve an already-pending operator (d/c/y + motion) --
         if self._pending_op:
@@ -274,86 +287,88 @@ class VimModalMixin:
                 row, _ = self.cursor_location
                 end_row = min(row + combined_count - 1, self.document.line_count - 1)
                 self._apply_operator_range(op, (row, 0), (end_row, 0), linewise=True)
-                return
+                return True
             # vim quirk: "cw"/"cW" act like "ce" -- they stop at the end
             # of the current word rather than swallowing trailing
             # whitespace the way "dw" does.
             motion_char = "e" if (op == "c" and char == "w") else char
             motion = self._resolve_motion(key, motion_char, combined_count, had_count)
             if motion is None:
-                return
+                # invalid motion after an operator -- vim just cancels
+                # the pending operator silently; still "ours" to consume
+                return True
             target, linewise, inclusive = motion
             self._apply_operator_range(
                 op, self.cursor_location, target, linewise=linewise, inclusive=inclusive
             )
-            return
+            return True
 
         # -- visual mode: d/x/c/y act on the current selection --
         if self.mode in (Mode.VISUAL, Mode.VISUAL_LINE) and char in ("d", "x", "c", "y"):
             self._visual_operator(char)
-            return
+            return True
 
         # -- start a new operator --
         if char in ("d", "c", "y") and self.mode is Mode.NORMAL:
             self._pending_op = char
             self._pending_op_count = count
-            return
+            return True
 
         # -- D / C / X: line-end / char shorthand operators --
         if char == "D":
             row, col = self.cursor_location
             self._apply_operator_range("d", (row, col), self._end_of_line(row), inclusive=True)
-            return
+            return True
         if char == "C":
             row, col = self.cursor_location
             self._apply_operator_range("c", (row, col), self._end_of_line(row), inclusive=True)
-            return
+            return True
         if char == "X":
             row, col = self.cursor_location
             start_col = max(0, col - count)
             if start_col < col:
                 self._apply_operator_range("d", (row, start_col), (row, col))
-            return
+            return True
         if char == "x":
             row, col = self.cursor_location
             line_len = len(str(self.get_line(row)))
             end_col = min(col + count, line_len)
             if end_col > col:
                 self._apply_operator_range("d", (row, col), (row, end_col))
-            return
+            return True
 
         # -- enter insert mode --
         if char == "i":
             self._enter_insert()
-            return
+            return True
         if char == "a":
             row, col = self.cursor_location
             line_len = len(str(self.get_line(row)))
             self.move_cursor((row, min(line_len, col + 1)))
             self._enter_insert()
-            return
+            return True
         if char == "I":
             self.move_cursor(self.get_cursor_line_start_location(smart_home=True))
             self._enter_insert()
-            return
+            return True
         if char == "A":
             row, _ = self.cursor_location
             self.move_cursor(self._end_of_line(row))
             self._enter_insert()
-            return
+            return True
         if char == "o":
             row, _ = self.cursor_location
             end = self._end_of_line(row)
             self.insert("\n", location=end)
             self.move_cursor((row + 1, 0))
             self._enter_insert()
-            return
+            return True
         if char == "O":
             row, _ = self.cursor_location
             self.insert("\n", location=(row, 0))
             self.move_cursor((row, 0))
             self._enter_insert()
-            return
+            return True
 
         # -- visual mode toggles --
         if char == "v":
@@ -361,31 +376,31 @@ class VimModalMixin:
                 self._enter_normal_mode()
             else:
                 self._enter_visual(linewise=False)
-            return
+            return True
         if char == "V":
             if self.mode is Mode.VISUAL_LINE:
                 self._enter_normal_mode()
             else:
                 self._enter_visual(linewise=True)
-            return
+            return True
 
         # -- paste --
         if char == "p":
             self._paste(after=True)
-            return
+            return True
         if char == "P":
             self._paste(after=False)
-            return
+            return True
 
         # -- undo / redo --
         if char == "u":
             for _ in range(count):
                 self.undo()
-            return
+            return True
         if key == "ctrl+r":
             for _ in range(count):
                 self.redo()
-            return
+            return True
 
         # -- plain motions (also extend selection in visual modes) --
         motion = self._resolve_motion(key, char, count, had_count)
@@ -395,6 +410,20 @@ class VimModalMixin:
             self.move_cursor(target, select=select)
             if self.mode is Mode.VISUAL_LINE:
                 self._sync_visual_line_selection()
+            return True
+
+        # Nothing above recognized this key as a vim command.
+        if char is not None and event.is_printable:
+            # A stray printable character (an unmapped letter like 'z' or
+            # 'm', or punctuation) must still be swallowed -- letting it
+            # fall through would insert it as text, which real vim's
+            # NORMAL mode never does.
+            return True
+
+        # A non-printable, unrecognized key (function keys, most
+        # ctrl+letter combinations, etc.) isn't a vim thing at all --
+        # don't consume it, so it can reach the host app's own bindings.
+        return False
 
     # ------------------------------------------------------------------
     # motions -- return (target_location, linewise, inclusive) or None

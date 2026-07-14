@@ -136,11 +136,14 @@ class VimTextAreaPlus(VimModalMixin, TextAreaPlus):
             self.post_message(self.StatusChanged(self.status_text))
             return
 
-        # NORMAL / VISUAL / VISUAL_LINE: we own every key, TextAreaPlus
-        # never sees it.
-        event.stop()
-        event.prevent_default()
-        self._handle_normal_key(event)
+        # NORMAL / VISUAL / VISUAL_LINE: only swallow the key if it was
+        # actually a vim command -- letting TextAreaPlus's own
+        # widget-level bindings (F2, ctrl+b, etc. -- see this module's
+        # docstring) through otherwise, instead of unconditionally
+        # eating every key.
+        if self._handle_normal_key(event):
+            event.stop()
+            event.prevent_default()
         self.post_message(self.StatusChanged(self.status_text))
 
     # ------------------------------------------------------------------
@@ -152,3 +155,15 @@ class VimTextAreaPlus(VimModalMixin, TextAreaPlus):
     # ------------------------------------------------------------------
     async def _do_save(self) -> None:
         await self._trigger_ancestor_action("save")
+
+    # ------------------------------------------------------------------
+    # ':q' closes the current buffer/tab matching real vim's ':q'
+    # closing the current window rather than the whole app. Falls back
+    # to the generic QuitRequested message if no ancestor defines
+    # action_close_buffer -- e.g. if this widget ends up embedded in some
+    # other host app without that concept.
+    # ------------------------------------------------------------------
+    async def _do_quit(self) -> None:
+        handled = await self._trigger_ancestor_action("close_buffer")
+        if not handled:
+            self.post_message(self.QuitRequested())
