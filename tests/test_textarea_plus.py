@@ -175,6 +175,36 @@ async def test_visual_mode_delete():
 
 
 @pytest.mark.asyncio
+async def test_word_text_objects_work_without_leaving_visual_mode():
+    app = HarnessApp("one two")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextAreaPlus)
+        await press_all(pilot, list("viw"))
+        assert editor.mode is Mode.VISUAL
+        await pilot.press("d")
+        assert editor.text == " two"
+
+        await press_all(pilot, list("ciw"))
+        assert editor.mode is Mode.INSERT
+        assert editor.text == "two"
+
+
+@pytest.mark.asyncio
+async def test_quoted_text_objects_work_in_textarea_plus():
+    app = HarnessApp('select "alpha beta" from tbl')
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextAreaPlus)
+        editor.move_cursor((0, 10))
+        await press_all(pilot, ['v', 'i', '"'])
+        assert editor.mode is Mode.VISUAL
+        await pilot.press("d")
+        assert editor.text == 'select "" from tbl'
+
+        await press_all(pilot, ['c', 'i', '"'])
+        assert editor.mode is Mode.INSERT
+
+
+@pytest.mark.asyncio
 async def test_colon_w_triggers_real_save_action():
     """':w' must trigger TextEditor's actual action_save -- not just
     avoid crashing. Verified by checking the footer path-input Input

@@ -19,6 +19,8 @@ Both share the same underlying vim logic (`_modal.VimModalMixin`) - same motions
 - Editing: `x X`, `dd dw db de`, `d$ / D`, `cc cw cb ce`, `c$ / C`,
   `yy yw yb ye`, `y$`, `p P`, `u`, `ctrl+r`
 - Visual mode: `v` (charwise) / `V` (linewise), then `d x c y` act on the selection
+- Text objects: `iw` / `aw` and quoted strings (`i"`, `a"`, `i'`, `a'`,
+  `` i` ``, `` a` ``) in Visual mode or after `d`, `c`, and `y`
 - Counts: `3j`, `3dd`, `2dw`, even `2d3w` (counts multiply, like real vim)
 - Command line: `:w`, `:q`, `:wq`, `:n` to jump to line `n` - anything else
   gets posted as a message so your app can handle its own commands
