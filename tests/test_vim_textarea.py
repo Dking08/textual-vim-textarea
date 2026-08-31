@@ -153,6 +153,270 @@ async def test_visual_mode_delete():
 
 
 @pytest.mark.asyncio
+async def test_visual_inner_word_stays_in_visual_mode():
+    app = HarnessApp("one two")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await pilot.press("l")
+        await pilot.press("v")
+        await pilot.press("i")
+        assert editor.mode is Mode.VISUAL
+        assert editor.status_text == "-- VISUAL -- i"
+
+        await pilot.press("w")
+        assert editor.mode is Mode.VISUAL
+        await pilot.press("d")
+        assert editor.text == " two"
+
+
+@pytest.mark.asyncio
+async def test_visual_around_word_includes_adjacent_space():
+    app = HarnessApp("one two")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, list("vaw"))
+        assert editor.mode is Mode.VISUAL
+        await pilot.press("d")
+        assert editor.text == "two"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("keys", "expected_text", "expected_register", "expected_mode"),
+    [
+        ("diw", " two", "one", Mode.NORMAL),
+        ("daw", "two", "one ", Mode.NORMAL),
+        ("ciw", " two", "one", Mode.INSERT),
+        ("caw", "two", "one ", Mode.INSERT),
+        ("yiw", "one two", "one", Mode.NORMAL),
+        ("yaw", "one two", "one ", Mode.NORMAL),
+    ],
+)
+async def test_word_text_objects_work_with_operators(
+    keys, expected_text, expected_register, expected_mode
+):
+    app = HarnessApp("one two")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, list(keys))
+        assert editor.text == expected_text
+        assert editor._register == expected_register
+        assert editor.mode is expected_mode
+
+
+@pytest.mark.asyncio
+async def test_inner_word_on_whitespace_selects_only_whitespace():
+    app = HarnessApp("one   two")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        editor.move_cursor((0, 4))
+        await press_all(pilot, list("viwd"))
+        assert editor.text == "onetwo"
+
+
+@pytest.mark.asyncio
+async def test_word_text_objects_honor_counts():
+    app = HarnessApp("one two three")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, list("d2iw"))
+        assert editor.text == "two three"
+
+        editor.text = "one two three"
+        editor.move_cursor((0, 0))
+        await press_all(pilot, list("v2awd"))
+        assert editor.text == "three"
+
+
+@pytest.mark.asyncio
+async def test_inner_word_count_crosses_lines():
+    app = HarnessApp("one\ntwo")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, list("d2iw"))
+        assert editor.text == ""
+
+
+@pytest.mark.asyncio
+async def test_inner_word_operator_is_noop_on_blank_line():
+    app = HarnessApp("\ntwo")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, list("diw"))
+        assert editor.text == "\ntwo"
+
+
+@pytest.mark.asyncio
+async def test_visual_inner_word_can_delete_blank_line():
+    app = HarnessApp("\ntwo")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, list("viwd"))
+        assert editor.text == "two"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("keys", "expected_register"),
+    [
+        ("vawawy", "one two "),
+        ("viwiwy", "one "),
+        ("vllliwy", "one two"),
+    ],
+)
+async def test_word_text_objects_extend_visual_selection(keys, expected_register):
+    app = HarnessApp("one two three")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, list(keys))
+        assert editor._register == expected_register
+
+
+@pytest.mark.asyncio
+async def test_count_after_text_object_prefix_is_invalid():
+    app = HarnessApp("one two")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, list("di2w"))
+        assert editor.text == "one two"
+        assert editor.mode is Mode.NORMAL
+
+
+@pytest.mark.asyncio
+async def test_escape_clears_pending_count():
+    app = HarnessApp("one\ntwo\nthree\nfour")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, ["3", "escape", "j"])
+        assert editor.cursor_location == (1, 0)
+        assert editor.status_text == "NORMAL"
+
+
+@pytest.mark.asyncio
+async def test_around_word_uses_leading_space_for_last_word():
+    app = HarnessApp("one two")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        editor.move_cursor((0, 4))
+        await press_all(pilot, list("daw"))
+        assert editor.text == "one"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("cursor", "expected_text"),
+    [
+        ((0, 0), "\ntwo"),
+        ((1, 0), "one\n"),
+    ],
+)
+async def test_around_word_does_not_consume_newline(cursor, expected_text):
+    app = HarnessApp("one\ntwo")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        editor.move_cursor(cursor)
+        await press_all(pilot, list("daw"))
+        assert editor.text == expected_text
+
+
+@pytest.mark.asyncio
+async def test_around_word_consumes_horizontal_space_before_newline():
+    app = HarnessApp("one   \ntwo")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, list("daw"))
+        assert editor.text == "\ntwo"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("keys", "expected_text", "expected_register", "expected_mode"),
+    [
+        ('di"', 'select "" from tbl', "alpha beta", Mode.NORMAL),
+        ('da"', "select from tbl", '"alpha beta" ', Mode.NORMAL),
+        ('ci"', 'select "" from tbl', "alpha beta", Mode.INSERT),
+        ('yi"', 'select "alpha beta" from tbl', "alpha beta", Mode.NORMAL),
+    ],
+)
+async def test_quoted_text_objects_work_with_operators(
+    keys, expected_text, expected_register, expected_mode
+):
+    app = HarnessApp('select "alpha beta" from tbl')
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        editor.move_cursor((0, 10))
+        await press_all(pilot, list(keys))
+        assert editor.text == expected_text
+        assert editor._register == expected_register
+        assert editor.mode is expected_mode
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quote", ['"', "'", "`"])
+async def test_visual_inner_quote_supports_all_quote_types(quote):
+    app = HarnessApp(f"select {quote}alpha beta{quote} from tbl")
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        editor.move_cursor((0, 10))
+        await press_all(pilot, ["v", "i", quote])
+        assert editor.mode is Mode.VISUAL
+        await pilot.press("d")
+        assert editor.text == f"select {quote}{quote} from tbl"
+
+
+@pytest.mark.asyncio
+async def test_inner_quote_ignores_escaped_delimiters():
+    app = HarnessApp(r'select "alpha \"beta\" gamma" from tbl')
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        editor.move_cursor((0, 10))
+        await press_all(pilot, ['d', 'i', '"'])
+        assert editor.text == 'select "" from tbl'
+        assert editor._register == r'alpha \"beta\" gamma'
+
+
+@pytest.mark.asyncio
+async def test_inner_quote_finds_the_next_quoted_string():
+    app = HarnessApp('select before "alpha beta" after')
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        await press_all(pilot, ['v', 'i', '"', 'y'])
+        assert editor._register == "alpha beta"
+
+
+@pytest.mark.asyncio
+async def test_inner_quote_on_closing_delimiter_uses_its_string():
+    app = HarnessApp('select "one" and "two"')
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        editor.move_cursor((0, 11))
+        await press_all(pilot, ['v', 'i', '"', 'y'])
+        assert editor._register == "one"
+
+
+@pytest.mark.asyncio
+async def test_inner_quote_between_strings_uses_surrounding_delimiters():
+    app = HarnessApp('select "one" and "two"')
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        editor.move_cursor((0, 14))
+        await press_all(pilot, ['d', 'i', '"'])
+        assert editor.text == 'select "one""two"'
+        assert editor._register == " and "
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", ["2", "3"])
+async def test_counted_inner_quote_includes_quotes_without_whitespace(count):
+    app = HarnessApp('select "alpha beta" from tbl')
+    async with app.run_test() as pilot:
+        editor = app.query_one("#editor", VimTextArea)
+        editor.move_cursor((0, 10))
+        await press_all(pilot, ['v', count, 'i', '"', 'y'])
+        assert editor._register == '"alpha beta"'
+
+
+@pytest.mark.asyncio
 async def test_visual_line_mode_delete():
     app = HarnessApp("one\ntwo\nthree\nfour")
     async with app.run_test() as pilot:

@@ -59,11 +59,13 @@ from textual.reactive import reactive
 from textual.widgets.text_area import Selection
 
 Location = Tuple[int, int]
+TextObjectSegment = Tuple[Location, Location, str]
 
 # A "word" for w/b/e purposes: a run of keyword characters, OR a run of
 # punctuation characters. Whitespace is always a separator. This mirrors
 # vim's default (non-WORD) motion closely enough for everyday use.
 _TOKEN_RE = re.compile(r"\w+|[^\w\s]+")
+_WORD_OBJECT_RE = re.compile(r"\w+|[^\w\s]+|\s+")
 
 
 class Mode(str, Enum):
@@ -86,6 +88,9 @@ class VimModalMixin:
         super().__init__(*args, **kwargs)
         self._count: str = ""
         self._pending_op: Optional[str] = None
+        self._pending_text_object: Optional[str] = None
+        self._pending_text_object_count: int = 1
+        self._visual_text_object_range: Optional[Tuple[Location, Location]] = None
         self._pending_g: bool = False
         self._register: str = ""
         self._register_linewise: bool = False
@@ -106,7 +111,9 @@ class VimModalMixin:
             Mode.VISUAL: "-- VISUAL --",
             Mode.VISUAL_LINE: "-- VISUAL LINE --",
         }
-        pending = f"{self._count}{self._pending_op or ''}"
+        pending = (
+            f"{self._count}{self._pending_op or ''}{self._pending_text_object or ''}"
+        )
         text = labels[self.mode]
         return f"{text} {pending}".rstrip()
 
@@ -121,6 +128,9 @@ class VimModalMixin:
 
     def _enter_normal_mode(self, shift_cursor_left: bool = False) -> None:
         self._pending_op = None
+        self._pending_text_object = None
+        self._pending_text_object_count = 1
+        self._visual_text_object_range = None
         self._pending_g = False
         self._count = ""
         if shift_cursor_left:
@@ -229,6 +239,65 @@ class VimModalMixin:
         key = event.key
         char = event.character
 
+        if key == "escape":
+            if self.mode in (Mode.VISUAL, Mode.VISUAL_LINE):
+                self._enter_normal_mode()
+            else:
+                self._count = ""
+                self._pending_op = None
+                self._pending_text_object = None
+                self._pending_text_object_count = 1
+                self._pending_g = False
+            return True
+
+        # -- resolve an inner/around text object --
+        if self._pending_text_object:
+            text_object = self._pending_text_object
+            text_object_count = self._pending_text_object_count
+            self._pending_text_object = None
+            self._pending_text_object_count = 1
+
+            if char not in ("w", '"', "'", "`"):
+                self._pending_op = None
+                self._pending_op_count = 1
+                return True
+
+            extending_visual_word = (
+                char == "w"
+                and text_object == "i"
+                and self._pending_op is None
+                and self.mode is Mode.VISUAL
+                and self.selection.start != self.selection.end
+            )
+            text_range = self._text_object_range(
+                char,
+                around=text_object == "a",
+                count=text_object_count + int(extending_visual_word),
+            )
+            if text_range is None:
+                self._pending_op = None
+                self._pending_op_count = 1
+                return True
+
+            start, end = text_range
+            if self._pending_op:
+                op = self._pending_op
+                self._pending_op = None
+                self._pending_op_count = 1
+                if (
+                    char == "w"
+                    and text_object == "i"
+                    and text_object_count == 1
+                    and self.get_text_range(start, end) == self.document.newline
+                ):
+                    return True
+                self._apply_operator_range(op, start, end)
+            else:
+                self._select_text_object(
+                    start, end, object_key=char, around=text_object == "a"
+                )
+            return True
+
         # -- numeric count prefix (leading 0 is a motion, not a count) --
         if char is not None and char.isdigit() and (char != "0" or self._count):
             self._count += char
@@ -237,14 +306,6 @@ class VimModalMixin:
         count = int(self._count) if self._count else 1
         had_count = bool(self._count)
         self._count = ""
-
-        if key == "escape":
-            if self.mode in (Mode.VISUAL, Mode.VISUAL_LINE):
-                self._enter_normal_mode()
-            else:
-                self._pending_op = None
-                self._pending_g = False
-            return True
 
         if char == ":":
             self.mode = Mode.COMMAND
@@ -277,6 +338,11 @@ class VimModalMixin:
 
         # -- resolve an already-pending operator (d/c/y + motion) --
         if self._pending_op:
+            if char in ("i", "a"):
+                self._pending_text_object = char
+                self._pending_text_object_count = self._pending_op_count * count
+                return True
+
             op = self._pending_op
             self._pending_op = None
             # counts before the operator and before the motion multiply,
@@ -335,6 +401,12 @@ class VimModalMixin:
             end_col = min(col + count, line_len)
             if end_col > col:
                 self._apply_operator_range("d", (row, col), (row, end_col))
+            return True
+
+        # -- visual word text objects --
+        if self.mode in (Mode.VISUAL, Mode.VISUAL_LINE) and char in ("i", "a"):
+            self._pending_text_object = char
+            self._pending_text_object_count = count
             return True
 
         # -- enter insert mode --
@@ -407,6 +479,8 @@ class VimModalMixin:
         if motion is not None:
             target, _linewise, _inclusive = motion
             select = self.mode in (Mode.VISUAL, Mode.VISUAL_LINE)
+            if select:
+                self._visual_text_object_range = None
             self.move_cursor(target, select=select)
             if self.mode is Mode.VISUAL_LINE:
                 self._sync_visual_line_selection()
@@ -469,6 +543,210 @@ class VimModalMixin:
     def _tokens(self, row: int):
         text = str(self.get_line(row))
         return [(m.start(), m.end()) for m in _TOKEN_RE.finditer(text)]
+
+    def _text_object_range(
+        self, key: str, around: bool, count: int
+    ) -> Optional[Tuple[Location, Location]]:
+        if key == "w":
+            return self._word_text_object_range(around=around, count=count)
+        if key in ('"', "'", "`"):
+            return self._quoted_text_object_range(
+                quote=key, around=around, include_quotes=count > 1
+            )
+        return None
+
+    def _word_text_object_range(
+        self, around: bool, count: int
+    ) -> Optional[Tuple[Location, Location]]:
+        segments = self._word_object_segments()
+        if not segments:
+            return None
+
+        cursor = self.cursor_location
+        segment_index = next(
+            (
+                index
+                for index, (start, end, _) in enumerate(segments)
+                if start <= cursor < end
+            ),
+            None,
+        )
+        if segment_index is None and cursor == self.document.end:
+            segment_index = len(segments) - 1
+        if segment_index is None:
+            return None
+
+        if not around:
+            if segments[segment_index][2] == "newline" and count == 1:
+                return segments[segment_index][0], segments[segment_index][1]
+            remaining = count
+            end_index = segment_index
+            for index in range(segment_index, len(segments)):
+                end_index = index
+                if segments[index][2] != "newline":
+                    remaining -= 1
+                if remaining == 0:
+                    break
+            return segments[segment_index][0], segments[end_index][1]
+
+        start_index = segment_index
+        if segments[start_index][2] != "word":
+            word_indices = [
+                index
+                for index in range(start_index + 1, len(segments))
+                if segments[index][2] == "word"
+            ]
+            if not word_indices:
+                word_indices = [
+                    index
+                    for index in range(start_index - 1, -1, -1)
+                    if segments[index][2] == "word"
+                ]
+                if not word_indices:
+                    return segments[start_index][0], segments[start_index][1]
+                start_index = word_indices[0]
+                return segments[start_index][0], segments[segment_index][1]
+        else:
+            word_indices = [
+                index
+                for index in range(start_index, len(segments))
+                if segments[index][2] == "word"
+            ]
+
+        end_word_index = word_indices[min(count - 1, len(word_indices) - 1)]
+        if segments[segment_index][2] != "word":
+            return segments[segment_index][0], segments[end_word_index][1]
+
+        end_index = end_word_index
+        if end_index + 1 < len(segments) and segments[end_index + 1][2] == "space":
+            end_index += 1
+        elif start_index > 0 and segments[start_index - 1][2] == "space":
+            start_index -= 1
+        return segments[start_index][0], segments[end_index][1]
+
+    def _word_object_segments(self) -> list[TextObjectSegment]:
+        segments: list[TextObjectSegment] = []
+        last_row = self.document.line_count - 1
+        for row in range(self.document.line_count):
+            line = str(self.get_line(row))
+            for match in _WORD_OBJECT_RE.finditer(line):
+                kind = "space" if match.group().isspace() else "word"
+                segments.append(((row, match.start()), (row, match.end()), kind))
+            if row < last_row:
+                segments.append(((row, len(line)), (row + 1, 0), "newline"))
+        return segments
+
+    def _quoted_text_object_range(
+        self, quote: str, around: bool, include_quotes: bool
+    ) -> Optional[Tuple[Location, Location]]:
+        row, col = self.cursor_location
+        line = str(self.get_line(row))
+        delimiters = [
+            index
+            for index, char in enumerate(line)
+            if char == quote and not self._is_escaped(line, index)
+        ]
+        if len(delimiters) < 2:
+            return None
+
+        if col in delimiters:
+            delimiter_index = delimiters.index(col)
+            if delimiter_index % 2 == 0:
+                if delimiter_index + 1 >= len(delimiters):
+                    return None
+                opening, closing = delimiters[delimiter_index : delimiter_index + 2]
+            else:
+                opening, closing = delimiters[delimiter_index - 1 : delimiter_index + 1]
+        else:
+            left = [index for index in delimiters if index < col]
+            right = [index for index in delimiters if index > col]
+            if not right:
+                return None
+            opening = left[-1] if left else delimiters[0]
+            closing = right[0] if left else delimiters[1]
+
+        if not around and not include_quotes:
+            return (row, opening + 1), (row, closing)
+
+        start = opening
+        end = closing + 1
+        if around:
+            trailing_end = end
+            while trailing_end < len(line) and line[trailing_end].isspace():
+                trailing_end += 1
+            if trailing_end > end:
+                end = trailing_end
+            else:
+                while start > 0 and line[start - 1].isspace():
+                    start -= 1
+        return (row, start), (row, end)
+
+    def _is_escaped(self, line: str, index: int) -> bool:
+        backslashes = 0
+        index -= 1
+        while index >= 0 and line[index] == "\\":
+            backslashes += 1
+            index -= 1
+        return backslashes % 2 == 1
+
+    def _select_text_object(
+        self,
+        start: Location,
+        end: Location,
+        object_key: str,
+        around: bool,
+    ) -> None:
+        was_linewise = self.mode is Mode.VISUAL_LINE
+        extending = self.mode is Mode.VISUAL and self.selection.start != self.selection.end
+
+        if extending and object_key == "w" and around:
+            segments = self._word_object_segments()
+            trailing = next(
+                (
+                    segment_end
+                    for segment_start, segment_end, kind in segments
+                    if segment_start == end and kind == "space"
+                ),
+                None,
+            )
+            if trailing is not None:
+                end = trailing
+
+        object_end = self._location_before(end)
+        if was_linewise or not extending:
+            self.selection = Selection(start, object_end)
+            selection_start, selection_end = start, end
+        else:
+            forward = self.selection.start <= self.selection.end
+            selection_start = min(self.selection.start, self.selection.end, start)
+            selection_end = max(
+                self._location_after(max(self.selection.start, self.selection.end)), end
+            )
+            inclusive_selection_end = self._location_before(selection_end)
+            self.selection = (
+                Selection(selection_start, inclusive_selection_end)
+                if forward
+                else Selection(inclusive_selection_end, selection_start)
+            )
+        self._visual_text_object_range = selection_start, selection_end
+        self.mode = Mode.VISUAL
+
+    def _location_before(self, location: Location) -> Location:
+        row, col = location
+        if col > 0:
+            return row, col - 1
+        if row > 0:
+            return row - 1, len(str(self.get_line(row - 1)))
+        return location
+
+    def _location_after(self, location: Location) -> Location:
+        row, col = location
+        line_length = len(str(self.get_line(row)))
+        if col < line_length:
+            return row, col + 1
+        if row + 1 < self.document.line_count:
+            return row + 1, 0
+        return location
 
     def _word_forward_location(self, count: int) -> Location:
         row, col = self.cursor_location
@@ -605,6 +883,11 @@ class VimModalMixin:
 
     def _visual_operator(self, char: str) -> None:
         op = "d" if char == "x" else char
+        if self._visual_text_object_range is not None:
+            start, end = self._visual_text_object_range
+            self._visual_text_object_range = None
+            self._apply_operator_range(op, start, end)
+            return
         start, end = self.selection
         start, end = (start, end) if start <= end else (end, start)
         if self.mode is Mode.VISUAL_LINE:
